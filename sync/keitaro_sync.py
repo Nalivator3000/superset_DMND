@@ -36,31 +36,33 @@ def init_database():
     conn = get_db_connection()
     cur = conn.cursor()
 
+    # Daily aggregated metrics table
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS keitaro_conversions (
+        CREATE TABLE IF NOT EXISTS keitaro_daily_metrics (
             id SERIAL PRIMARY KEY,
             campaign_id INTEGER,
             campaign_name VARCHAR(255),
-            datetime TIMESTAMP,
-            clicks INTEGER,
-            conversions INTEGER,
-            revenue DECIMAL(18,2),
-            cost DECIMAL(18,2),
-            sub_id VARCHAR(255),
-            country VARCHAR(10),
+            date DATE,
+            clicks INTEGER DEFAULT 0,
+            conversions INTEGER DEFAULT 0,
+            leads INTEGER DEFAULT 0,
+            sales INTEGER DEFAULT 0,
+            revenue DECIMAL(18,2) DEFAULT 0,
+            cost DECIMAL(18,2) DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(campaign_id, datetime)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(campaign_id, date)
         )
     """)
 
     cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_keitaro_campaign_id
-        ON keitaro_conversions(campaign_id)
+        CREATE INDEX IF NOT EXISTS idx_keitaro_daily_campaign_id
+        ON keitaro_daily_metrics(campaign_id)
     """)
 
     cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_keitaro_datetime
-        ON keitaro_conversions(datetime)
+        CREATE INDEX IF NOT EXISTS idx_keitaro_daily_date
+        ON keitaro_daily_metrics(date)
     """)
 
     conn.commit()
@@ -70,7 +72,7 @@ def init_database():
 
 
 def fetch_keitaro_data(campaign_id, date_from, date_to):
-    """Fetch conversion data from Keitaro API"""
+    """Fetch daily metrics from Keitaro API"""
     headers = {
         "Api-Key": KEITARO_API_KEY,
         "Content-Type": "application/json"
@@ -82,16 +84,9 @@ def fetch_keitaro_data(campaign_id, date_from, date_to):
             "to": date_to,
             "timezone": "UTC"
         },
-        "columns": [
-            "datetime",
-            "campaign_id",
-            "clicks",
-            "conversions",
-            "revenue",
-            "cost",
-            "sub_id_1",
-            "country"
-        ],
+        "columns": [],
+        "metrics": ["clicks", "conversions", "leads", "sales", "revenue", "cost"],
+        "grouping": ["day"],
         "filters": [
             {
                 "name": "campaign_id",
@@ -99,7 +94,7 @@ def fetch_keitaro_data(campaign_id, date_from, date_to):
                 "expression": str(campaign_id)
             }
         ],
-        "limit": 10000
+        "limit": 1000
     }
 
     try:
@@ -136,9 +131,9 @@ def sync_campaign(campaign_id):
     """Sync data for a specific campaign"""
     logger.info(f"Syncing campaign {campaign_id}")
 
-    # Get last 7 days of data
-    date_to = datetime.utcnow().strftime("%Y-%m-%d")
-    date_from = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+    # Get last 30 days of data
+    date_to = datetime.now().strftime("%Y-%m-%d")
+    date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
     rows = fetch_keitaro_data(campaign_id, date_from, date_to)
     if not rows:
@@ -156,30 +151,32 @@ def sync_campaign(campaign_id):
         values.append((
             campaign_id,
             campaign_name,
-            row.get("datetime"),
-            row.get("clicks", 0),
-            row.get("conversions", 0),
-            row.get("revenue", 0),
-            row.get("cost", 0),
-            row.get("sub_id_1", ""),
-            row.get("country", "")
+            row.get("day"),
+            int(row.get("clicks", 0)),
+            int(row.get("conversions", 0)),
+            int(row.get("leads", 0)),
+            int(row.get("sales", 0)),
+            float(row.get("revenue", 0)),
+            float(row.get("cost", 0))
         ))
 
     # Upsert data
     execute_values(
         cur,
         """
-        INSERT INTO keitaro_conversions
-        (campaign_id, campaign_name, datetime, clicks, conversions, revenue, cost, sub_id, country)
+        INSERT INTO keitaro_daily_metrics
+        (campaign_id, campaign_name, date, clicks, conversions, leads, sales, revenue, cost)
         VALUES %s
-        ON CONFLICT (campaign_id, datetime)
+        ON CONFLICT (campaign_id, date)
         DO UPDATE SET
+            campaign_name = EXCLUDED.campaign_name,
             clicks = EXCLUDED.clicks,
             conversions = EXCLUDED.conversions,
+            leads = EXCLUDED.leads,
+            sales = EXCLUDED.sales,
             revenue = EXCLUDED.revenue,
             cost = EXCLUDED.cost,
-            sub_id = EXCLUDED.sub_id,
-            country = EXCLUDED.country
+            updated_at = CURRENT_TIMESTAMP
         """,
         values
     )
