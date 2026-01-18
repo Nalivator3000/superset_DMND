@@ -60,61 +60,80 @@ else:
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
     REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
-# Cache configuration
-CACHE_CONFIG = {
-    "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 300,
-    "CACHE_KEY_PREFIX": "superset_",
-    "CACHE_REDIS_URL": REDIS_URL,
-}
-
-DATA_CACHE_CONFIG = {
-    "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 86400,  # 24 hours
-    "CACHE_KEY_PREFIX": "superset_data_",
-    "CACHE_REDIS_URL": REDIS_URL,
-}
-
-FILTER_STATE_CACHE_CONFIG = {
-    "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 86400,
-    "CACHE_KEY_PREFIX": "superset_filter_",
-    "CACHE_REDIS_URL": REDIS_URL,
-}
-
-EXPLORE_FORM_DATA_CACHE_CONFIG = {
-    "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 86400,
-    "CACHE_KEY_PREFIX": "superset_explore_",
-    "CACHE_REDIS_URL": REDIS_URL,
-}
+# Cache configuration - use simple cache if Redis not available
+if REDIS_URL and REDIS_URL != "redis://":
+    CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 300,
+        "CACHE_KEY_PREFIX": "superset_",
+        "CACHE_REDIS_URL": REDIS_URL,
+    }
+    DATA_CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+        "CACHE_KEY_PREFIX": "superset_data_",
+        "CACHE_REDIS_URL": REDIS_URL,
+    }
+    FILTER_STATE_CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+        "CACHE_KEY_PREFIX": "superset_filter_",
+        "CACHE_REDIS_URL": REDIS_URL,
+    }
+    EXPLORE_FORM_DATA_CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+        "CACHE_KEY_PREFIX": "superset_explore_",
+        "CACHE_REDIS_URL": REDIS_URL,
+    }
+else:
+    # Fallback to simple in-memory cache
+    CACHE_CONFIG = {
+        "CACHE_TYPE": "SimpleCache",
+        "CACHE_DEFAULT_TIMEOUT": 300,
+    }
+    DATA_CACHE_CONFIG = {
+        "CACHE_TYPE": "SimpleCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+    }
+    FILTER_STATE_CACHE_CONFIG = {
+        "CACHE_TYPE": "SimpleCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+    }
+    EXPLORE_FORM_DATA_CACHE_CONFIG = {
+        "CACHE_TYPE": "SimpleCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+    }
 
 # =============================================================================
 # CELERY CONFIGURATION
 # =============================================================================
 
-class CeleryConfig:
-    broker_url = REDIS_URL
-    result_backend = REDIS_URL
-    worker_prefetch_multiplier = 1
-    task_acks_late = True
-    task_annotations = {
-        "sql_lab.get_sql_results": {
-            "rate_limit": "100/s",
-        },
-    }
-    beat_schedule = {
-        "reports.scheduler": {
-            "task": "reports.scheduler",
-            "schedule": crontab(minute="*", hour="*"),
-        },
-        "reports.prune_log": {
-            "task": "reports.prune_log",
-            "schedule": crontab(minute=0, hour=0),
-        },
-    }
+if REDIS_URL and REDIS_URL != "redis://":
+    class CeleryConfig:
+        broker_url = REDIS_URL
+        result_backend = REDIS_URL
+        worker_prefetch_multiplier = 1
+        task_acks_late = True
+        task_annotations = {
+            "sql_lab.get_sql_results": {
+                "rate_limit": "100/s",
+            },
+        }
+        beat_schedule = {
+            "reports.scheduler": {
+                "task": "reports.scheduler",
+                "schedule": crontab(minute="*", hour="*"),
+            },
+            "reports.prune_log": {
+                "task": "reports.prune_log",
+                "schedule": crontab(minute=0, hour=0),
+            },
+        }
 
-CELERY_CONFIG = CeleryConfig
+    CELERY_CONFIG = CeleryConfig
+else:
+    CELERY_CONFIG = None
 
 # =============================================================================
 # FEATURE FLAGS
