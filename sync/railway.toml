@@ -3,5 +3,6 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+startCommand = "python -u keitaro_sync.py"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
