@@ -73,44 +73,88 @@ def init_database():
 
 
 def fetch_keitaro_data(campaign_id, date_from, date_to):
-    """Fetch events grouped by day and event_type from Keitaro API"""
+    """Fetch conversion logs from Keitaro API using /conversions/log endpoint"""
+    from collections import defaultdict
+
     headers = {
         "Api-Key": KEITARO_API_KEY,
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "range": {
-            "from": date_from,
-            "to": date_to,
-            "timezone": "UTC"
-        },
-        "columns": [],
-        "metrics": ["conversions"],
-        "grouping": ["day", "sub_id_2"],
-        "filters": [
-            {
-                "name": "campaign_id",
-                "operator": "EQUALS",
-                "expression": str(campaign_id)
-            }
-        ],
-        "limit": 10000
-    }
+    all_rows = []
+    offset = 0
+    limit = 500
+    total = None
 
-    try:
-        response = requests.post(
-            f"{KEITARO_URL}/admin_api/v1/report/build",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data.get("rows", [])
-    except Exception as e:
-        logger.error(f"Error fetching Keitaro data: {e}")
-        return []
+    while True:
+        payload = {
+            "range": {
+                "from": date_from,
+                "to": date_to,
+                "timezone": "Europe/Moscow"
+            },
+            "columns": ["datetime", "sub_id_2", "revenue", "status"],
+            "filters": [
+                {
+                    "name": "campaign_id",
+                    "operator": "EQUALS",
+                    "expression": str(campaign_id)
+                }
+            ],
+            "limit": limit,
+            "offset": offset
+        }
+
+        try:
+            response = requests.post(
+                f"{KEITARO_URL}/admin_api/v1/conversions/log",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            response.raise_for_status()
+            data = response.json()
+            rows = data.get("rows", [])
+
+            if total is None:
+                total = data.get("total", 0)
+                logger.info(f"Total conversions to fetch: {total}")
+
+            if not rows:
+                break
+
+            all_rows.extend(rows)
+            logger.info(f"Fetched {len(all_rows)} / {total}")
+
+            offset += limit
+            if offset >= total:
+                break
+
+        except Exception as e:
+            logger.error(f"Error fetching Keitaro data at offset {offset}: {e}")
+            break
+
+    # Aggregate by day and event_type
+    aggregated = defaultdict(lambda: defaultdict(int))
+
+    for row in all_rows:
+        dt = row.get("datetime", "")[:10]  # Extract date part
+        event_type = row.get("sub_id_2", "") or "unknown"
+        if not event_type.strip():
+            event_type = "unknown"
+        aggregated[dt][event_type] += 1
+
+    # Convert to list of dicts
+    result = []
+    for day, events in aggregated.items():
+        for event_type, count in events.items():
+            result.append({
+                "day": day,
+                "sub_id_2": event_type,
+                "conversions": count
+            })
+
+    return result
 
 
 def get_campaign_name(campaign_id):
