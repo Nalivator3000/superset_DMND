@@ -61,7 +61,7 @@ else:
     REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
 # Cache configuration - use simple cache if Redis not available
-if REDIS_URL and REDIS_URL != "redis://":
+if REDIS_URL and REDIS_URL not in ("redis://", "none", ""):
     CACHE_CONFIG = {
         "CACHE_TYPE": "RedisCache",
         "CACHE_DEFAULT_TIMEOUT": 300,
@@ -109,7 +109,7 @@ else:
 # CELERY CONFIGURATION
 # =============================================================================
 
-if REDIS_URL and REDIS_URL != "redis://":
+if REDIS_URL and REDIS_URL not in ("redis://", "none", ""):
     class CeleryConfig:
         broker_url = REDIS_URL
         result_backend = REDIS_URL
