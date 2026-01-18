@@ -129,9 +129,12 @@ FEATURE_FLAGS = {
     "LISTVIEWS_DEFAULT_CARD_VIEW": True,
     "SCHEDULED_QUERIES": True,
     "SQL_VALIDATORS_BY_ENGINE": True,
-    "THUMBNAILS": True,
-    "GLOBAL_ASYNC_QUERIES": True,
+    "THUMBNAILS": False,
+    "GLOBAL_ASYNC_QUERIES": False,  # Disabled - requires results backend
 }
+
+# Results backend for async queries (using Redis)
+RESULTS_BACKEND = None  # Disable async results
 
 # =============================================================================
 # SECURITY SETTINGS
