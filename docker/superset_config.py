@@ -13,11 +13,12 @@ from celery.schedules import crontab
 
 # IMPORTANT: Generate a strong secret key for production
 # openssl rand -base64 42
-SECRET_KEY = os.environ.get("SECRET_KEY", "CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable must be set!")
 
 # JWT secret for async queries (must be at least 32 bytes)
-# This is required for Superset 6.0+ async query feature
-GLOBAL_ASYNC_QUERIES_JWT_SECRET = os.environ.get("SECRET_KEY", "CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET")
+GLOBAL_ASYNC_QUERIES_JWT_SECRET = SECRET_KEY
 
 # Application name
 APP_NAME = "Superset DMND"
@@ -227,12 +228,18 @@ LANGUAGES = {
 }
 
 # Thumbnail generation
-THUMBNAIL_CACHE_CONFIG = {
-    "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 86400,
-    "CACHE_KEY_PREFIX": "superset_thumb_",
-    "CACHE_REDIS_URL": REDIS_URL,
-}
+if REDIS_URL and REDIS_URL not in ("redis://", "none", ""):
+    THUMBNAIL_CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+        "CACHE_KEY_PREFIX": "superset_thumb_",
+        "CACHE_REDIS_URL": REDIS_URL,
+    }
+else:
+    THUMBNAIL_CACHE_CONFIG = {
+        "CACHE_TYPE": "SimpleCache",
+        "CACHE_DEFAULT_TIMEOUT": 86400,
+    }
 
 # Alerts & Reports
 ALERT_REPORTS_NOTIFICATION_DRY_RUN = False
