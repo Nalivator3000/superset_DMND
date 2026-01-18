@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Keitaro to PostgreSQL Sync Service
-Fetches conversion logs from Keitaro API and stores in PostgreSQL
+Fetches event logs from Keitaro API and stores in PostgreSQL
 """
 
 import os
@@ -36,33 +36,34 @@ def init_database():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Daily aggregated metrics table
+    # Events by day and event_type table
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS keitaro_daily_metrics (
+        CREATE TABLE IF NOT EXISTS keitaro_events (
             id SERIAL PRIMARY KEY,
             campaign_id INTEGER,
             campaign_name VARCHAR(255),
             date DATE,
-            clicks INTEGER DEFAULT 0,
-            conversions INTEGER DEFAULT 0,
-            leads INTEGER DEFAULT 0,
-            sales INTEGER DEFAULT 0,
-            revenue DECIMAL(18,2) DEFAULT 0,
-            cost DECIMAL(18,2) DEFAULT 0,
+            event_type VARCHAR(100),
+            event_count INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(campaign_id, date)
+            UNIQUE(campaign_id, date, event_type)
         )
     """)
 
     cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_keitaro_daily_campaign_id
-        ON keitaro_daily_metrics(campaign_id)
+        CREATE INDEX IF NOT EXISTS idx_keitaro_events_campaign_id
+        ON keitaro_events(campaign_id)
     """)
 
     cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_keitaro_daily_date
-        ON keitaro_daily_metrics(date)
+        CREATE INDEX IF NOT EXISTS idx_keitaro_events_date
+        ON keitaro_events(date)
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_keitaro_events_type
+        ON keitaro_events(event_type)
     """)
 
     conn.commit()
@@ -72,7 +73,7 @@ def init_database():
 
 
 def fetch_keitaro_data(campaign_id, date_from, date_to):
-    """Fetch daily metrics from Keitaro API"""
+    """Fetch events grouped by day and event_type from Keitaro API"""
     headers = {
         "Api-Key": KEITARO_API_KEY,
         "Content-Type": "application/json"
@@ -85,8 +86,8 @@ def fetch_keitaro_data(campaign_id, date_from, date_to):
             "timezone": "UTC"
         },
         "columns": [],
-        "metrics": ["clicks", "conversions", "leads", "sales", "revenue", "cost"],
-        "grouping": ["day"],
+        "metrics": ["conversions"],
+        "grouping": ["day", "sub_id_2"],
         "filters": [
             {
                 "name": "campaign_id",
@@ -94,7 +95,7 @@ def fetch_keitaro_data(campaign_id, date_from, date_to):
                 "expression": str(campaign_id)
             }
         ],
-        "limit": 1000
+        "limit": 10000
     }
 
     try:
@@ -148,34 +149,29 @@ def sync_campaign(campaign_id):
     # Prepare data for insert
     values = []
     for row in rows:
+        event_type = row.get("sub_id_2", "") or "unknown"
+        if not event_type.strip():
+            event_type = "unknown"
+
         values.append((
             campaign_id,
             campaign_name,
             row.get("day"),
-            int(row.get("clicks", 0)),
-            int(row.get("conversions", 0)),
-            int(row.get("leads", 0)),
-            int(row.get("sales", 0)),
-            float(row.get("revenue", 0)),
-            float(row.get("cost", 0))
+            event_type,
+            int(row.get("conversions", 0))
         ))
 
     # Upsert data
     execute_values(
         cur,
         """
-        INSERT INTO keitaro_daily_metrics
-        (campaign_id, campaign_name, date, clicks, conversions, leads, sales, revenue, cost)
+        INSERT INTO keitaro_events
+        (campaign_id, campaign_name, date, event_type, event_count)
         VALUES %s
-        ON CONFLICT (campaign_id, date)
+        ON CONFLICT (campaign_id, date, event_type)
         DO UPDATE SET
             campaign_name = EXCLUDED.campaign_name,
-            clicks = EXCLUDED.clicks,
-            conversions = EXCLUDED.conversions,
-            leads = EXCLUDED.leads,
-            sales = EXCLUDED.sales,
-            revenue = EXCLUDED.revenue,
-            cost = EXCLUDED.cost,
+            event_count = EXCLUDED.event_count,
             updated_at = CURRENT_TIMESTAMP
         """,
         values
