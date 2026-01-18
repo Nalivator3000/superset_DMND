@@ -1,7 +1,12 @@
 #!/bin/bash
-set -e
+set -ex
 
 echo "=== Starting Superset ==="
+echo "Environment variables:"
+echo "PORT: ${PORT:-8088}"
+echo "DATABASE_URL: ${DATABASE_URL:0:50}..."
+echo "REDIS_URL: ${REDIS_URL:0:40}..."
+echo "SUPERSET_CONFIG_PATH: ${SUPERSET_CONFIG_PATH}"
 
 # Run migrations
 echo "Running database migrations..."

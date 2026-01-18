@@ -8,6 +8,7 @@ USER root
 # Install system dependencies for database drivers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    pkg-config \
     libpq-dev \
     libsasl2-dev \
     libldap2-dev \
@@ -18,10 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Switch to superset user for package installation
-USER superset
-
 # Install database drivers using uv (Superset 6.0 uses uv instead of pip)
+# Keep running as root to avoid permission issues with venv
 RUN uv pip install --no-cache-dir \
     psycopg2-binary \
     mysqlclient \
@@ -30,10 +29,13 @@ RUN uv pip install --no-cache-dir \
     redis \
     gevent
 
+# Switch to superset user
+USER superset
+
 # Copy custom configuration and scripts
-COPY --chown=superset:superset superset_config.py /app/superset_config.py
-COPY --chown=superset:superset start.sh /app/docker/start.sh
-COPY --chown=superset:superset superset-init.sh /app/docker/superset-init.sh
+COPY --chown=superset:superset docker/superset_config.py /app/superset_config.py
+COPY --chown=superset:superset docker/start.sh /app/docker/start.sh
+COPY --chown=superset:superset docker/superset-init.sh /app/docker/superset-init.sh
 
 # Make scripts executable
 USER root
