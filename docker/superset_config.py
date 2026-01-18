@@ -16,7 +16,8 @@ from celery.schedules import crontab
 SECRET_KEY = os.environ.get("SECRET_KEY", "CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET")
 
 # JWT secret for async queries (must be at least 32 bytes)
-SUPERSET_SECRET_KEY = os.environ.get("SUPERSET_SECRET_KEY", SECRET_KEY)
+# This is required for Superset 6.0+ async query feature
+GLOBAL_ASYNC_QUERIES_JWT_SECRET = os.environ.get("SECRET_KEY", "CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET")
 
 # Application name
 APP_NAME = "Superset DMND"
