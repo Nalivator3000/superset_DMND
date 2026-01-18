@@ -15,6 +15,9 @@ from celery.schedules import crontab
 # openssl rand -base64 42
 SECRET_KEY = os.environ.get("SECRET_KEY", "CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET")
 
+# JWT secret for async queries (must be at least 32 bytes)
+SUPERSET_SECRET_KEY = os.environ.get("SUPERSET_SECRET_KEY", SECRET_KEY)
+
 # Application name
 APP_NAME = "Superset DMND"
 
