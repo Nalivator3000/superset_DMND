@@ -13,7 +13,7 @@ from celery.schedules import crontab
 
 # IMPORTANT: Generate a strong secret key for production
 # openssl rand -base64 42
-SECRET_KEY = os.environ.get("SECRET_KEY") or os.environ.get("SUPERSET_SECRET_KEY") or "kZ8h9L2mN5pQ7rS0tU3vW6xY9aB1cD4eF7gH0iJ3kL6mN9oP2qR5sT8uV1wX4yZ7"
+SECRET_KEY = os.environ.get("SECRET_KEY") or os.environ.get("SUPERSET_SECRET_KEY") or "3c5U7+/IqlZQXZ3CfJnhQO04wd/sCsGufghuV2WpWW/"
 
 # JWT secret for async queries (must be at least 32 bytes)
 GLOBAL_ASYNC_QUERIES_JWT_SECRET = SECRET_KEY
