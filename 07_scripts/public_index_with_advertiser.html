@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ubidex CSV Export</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #4CAF50;
+            background: #f9f9f9;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px 0;
+            font-weight: bold;
+        }
+        input[type="date"],
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .checkbox-group {
+            margin: 10px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        .checkbox-group label {
+            display: inline;
+            font-weight: normal;
+            margin-left: 5px;
+            cursor: pointer;
+        }
+        .checkbox-group input[type="checkbox"] {
+            cursor: pointer;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .error {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            color: #c62828;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ubidex CSV Export</h1>
+        <p>Экспорт пар User Agent и IP по заданным параметрам</p>
+        <p><strong>Инструкция:</strong> Выберите параметры фильтрации для экспорта пар User Agent и IP. 
+        Приложение сначала найдет пользователей по критериям, затем извлечет все пары UA+IP для этих пользователей. 
+        В экспорт попадут только строки с заполненными User Agent и IP.</p>
+        
+        <div id="error-message" class="error" style="display: none;"></div>
+        <div id="loading" class="loading" style="display: none;">
+            ⏳ Обработка запроса...
+            <div class="progress">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div id="progress-text">0%</div>
+        </div>
+        
+        <form id="export-form">
+            <div class="section">
+                <h3>Период</h3>
+                <label>Начало периода:</label>
+                <input type="date" name="startDate" id="startDate" required>
+                
+                <label>Конец периода:</label>
+                <input type="date" name="endDate" id="endDate" required>
+            </div>
+            
+            <div class="section">
+                <h3>Типы событий</h3>
+                <p>Выберите типы событий для фильтрации:</p>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="eventTypes" value="deposit" id="event_deposit">
+                    <label for="event_deposit">deposit</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="eventTypes" value="ftd" id="event_ftd">
+                    <label for="event_ftd">ftd</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="eventTypes" value="regfinished" id="event_regfinished" checked>
+                    <label for="event_regfinished">regfinished</label>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h3>Advertiser</h3>
+                <p>Выберите advertiser для фильтрации:</p>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="advertisers" value="1" id="advertiser_4ra">
+                    <label for="advertiser_4ra">4ra (ID: 1)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="advertisers" value="2" id="advertiser_crore">
+                    <label for="advertiser_crore">Crore (ID: 2)</label>
+                </div>
+                <p class="help-text">
+                    Если не выбрано ни одного advertiser, будут включены все advertiser
+                </p>
+            </div>
+            
+            <div class="section">
+                <h3>Диапазон сумм депозитов</h3>
+                <label>Минимальная сумма (USD):</label>
+                <input type="number" name="minDeposit" value="0" min="0" step="0.01">
+                
+                <label>Максимальная сумма (USD):</label>
+                <input type="number" name="maxDeposit" value="1000000" min="0" step="0.01">
+            </div>
+            
+            <div class="section">
+                <h3>Исключить события</h3>
+                <p>Пользователи, у которых НЕТ этих событий (например, регистрации без депозитов):</p>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="excludeEvents" value="deposit" id="exclude_deposit" checked>
+                    <label for="exclude_deposit">deposit</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="excludeEvents" value="ftd" id="exclude_ftd" checked>
+                    <label for="exclude_ftd">ftd</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" name="excludeEvents" value="regfinished" id="exclude_regfinished">
+                    <label for="exclude_regfinished">regfinished</label>
+                </div>
+            </div>
+            
+            <button type="submit" id="submit-btn">Экспортировать CSV</button>
+        </form>
+    </div>
+
+    <script>
+        const form = document.getElementById('export-form');
+        const errorDiv = document.getElementById('error-message');
+        const loadingDiv = document.getElementById('loading');
+        const submitBtn = document.getElementById('submit-btn');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+
+        // Устанавливаем даты по умолчанию (последние 30 дней)
+        const today = new Date();
+        const lastMonth = new Date();
+        lastMonth.setMonth(lastMonth.getMonth() - 1);
+        
+        document.getElementById('endDate').value = today.toISOString().split('T')[0];
+        document.getElementById('startDate').value = lastMonth.toISOString().split('T')[0];
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Скрываем предыдущие ошибки
+            errorDiv.style.display = 'none';
+            
+            // Собираем данные формы
+            const formData = new FormData(form);
+            const data = {
+                startDate: formData.get('startDate'),
+                endDate: formData.get('endDate'),
+                eventTypes: formData.getAll('eventTypes'),
+                advertisers: formData.getAll('advertisers'),  // ВАЖНО: собираем все выбранные advertiser
+                excludeEvents: formData.getAll('excludeEvents'),
+                minDeposit: parseFloat(formData.get('minDeposit')) || 0,
+                maxDeposit: parseFloat(formData.get('maxDeposit')) || 1000000
+            };
+            
+            // Валидация
+            if (data.eventTypes.length === 0) {
+                showError('Выберите хотя бы один тип события');
+                return;
+            }
+            
+            // Показываем загрузку
+            loadingDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            
+            // Симуляция прогресса
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress = Math.min(progress + 10, 90);
+                progressBar.style.width = progress + '%';
+                progressText.textContent = progress + '%';
+            }, 200);
+            
+            try {
+                console.log('Sending export request:', data);  // Для отладки
+                
+                const response = await fetch('/api/export', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                progressText.textContent = '100%';
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка при экспорте');
+                }
+                
+                // Получаем CSV файл
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ua_ip_export_${Date.now()}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                // Скрываем загрузку
+                setTimeout(() => {
+                    loadingDiv.style.display = 'none';
+                    submitBtn.disabled = false;
+                    progressBar.style.width = '0%';
+                    progressText.textContent = '0%';
+                }, 500);
+                
+            } catch (error) {
+                clearInterval(progressInterval);
+                loadingDiv.style.display = 'none';
+                submitBtn.disabled = false;
+                progressBar.style.width = '0%';
+                progressText.textContent = '0%';
+                showError(error.message);
+            }
+        });
+        
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
+
