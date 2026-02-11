@@ -1,0 +1,8 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "docker/Dockerfile"
+
+[deploy]
+startCommand = "bash /app/docker/start.sh"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
