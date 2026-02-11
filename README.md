@@ -131,6 +131,21 @@ python 07_scripts/calculate_bid_coefficients.py
 - **CPA** - Cost Per Acquisition (стоимость привлечения)
 - **RD Rate** - процент повторных депозитов (~97.5%)
 
+## ⚠️ Важно: Надежность работы с сетью
+
+**Проблема:** Интернет-соединение может нестабильно работать, пропадая на несколько секунд. Это приводит к крашам скриптов и потере данных.
+
+**Решение:** Все скрипты, работающие с API, должны включать:
+- Retry логику с экспоненциальной задержкой
+- Обработку сетевых ошибок (ConnectionError, Timeout)
+- Таймауты для всех запросов
+- Сохранение прогресса для длительных операций
+
+**Подробности:** 
+- [NETWORK_RELIABILITY_GUIDE.md](NETWORK_RELIABILITY_GUIDE.md) - полное руководство
+- [NETWORK_RELIABILITY_SUMMARY.md](NETWORK_RELIABILITY_SUMMARY.md) - краткая сводка
+- [07_scripts/network_utils.py](07_scripts/network_utils.py) - готовая утилита
+
 ## Требования
 
 ### Для Docker (рекомендуется):

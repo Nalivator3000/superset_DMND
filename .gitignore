@@ -75,3 +75,11 @@ Thumbs.db
 
 # Downloaded files
 Downloads/
+
+# Output directory (exports, reports, etc.)
+output/
+
+# Environment variables (contains sensitive data)
+.env
+.env.local
+.env.*.local
