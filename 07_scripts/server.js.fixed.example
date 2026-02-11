@@ -1,0 +1,304 @@
+// Пример исправленного server.js для UA-IP-parcer
+// Замените ваш текущий server.js на этот код или примените исправления
+
+const express = require('express');
+const { Pool } = require('pg');
+const csv = require('csv-stringify/sync');
+require('dotenv').config();
+
+const app = express();
+app.use(express.json());
+app.use(express.static('public'));
+
+// Подключение к БД
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Проверка схемы БД при старте
+let ipColumn = 'ip_address'; // По умолчанию
+
+async function checkDatabaseSchema() {
+  try {
+    const result = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'user_events' 
+        AND table_schema = 'public'
+        AND column_name IN ('user_agent', 'ip_address', 'ip')
+    `);
+    
+    const columns = result.rows.map(r => r.column_name);
+    const hasUserAgent = columns.includes('user_agent');
+    const ipCol = columns.includes('ip_address') ? 'ip_address' : 
+                  columns.includes('ip') ? 'ip' : null;
+    
+    if (!hasUserAgent || !ipCol) {
+      console.error('Missing required columns:', {
+        hasUserAgent,
+        ipColumn: ipCol,
+        availableColumns: columns
+      });
+      throw new Error(`Missing required columns: user_agent=${hasUserAgent}, ip=${ipCol}`);
+    }
+    
+    ipColumn = ipCol;
+    console.log(`Database schema OK: user_agent=✓, ip=${ipColumn}`);
+    return { hasUserAgent, ipColumn: ipCol };
+  } catch (error) {
+    console.error('Schema check failed:', error);
+    throw error;
+  }
+}
+
+// Функция диагностики
+async function runDiagnostics(params) {
+  const { startDate, endDate, eventTypes, advertisers = [], excludeEvents } = params;
+  
+  const checks = {};
+  
+  try {
+    // Проверка 1: Всего записей в периоде
+    const total = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM public.user_events
+      WHERE event_date >= $1::timestamp AND event_date <= $2::timestamp
+    `, [startDate, endDate]);
+    checks.totalInPeriod = parseInt(total.rows[0].count);
+    
+    // Проверка 2: Записи с выбранными типами событий
+    let eventTypesQuery = `
+      SELECT COUNT(*) as count
+      FROM public.user_events
+      WHERE event_date >= $1::timestamp 
+        AND event_date <= $2::timestamp
+        AND event_type = ANY($3::text[])
+    `;
+    const eventTypesParams = [startDate, endDate, eventTypes];
+    if (advertisers.length > 0) {
+      eventTypesQuery += ` AND advertiser = ANY($4::text[])`;
+      eventTypesParams.push(advertisers);
+    }
+    const withEventTypes = await pool.query(eventTypesQuery, eventTypesParams);
+    checks.withEventTypes = parseInt(withEventTypes.rows[0].count);
+    
+    // Проверка 3: Записи с UA и IP
+    const withUAIP = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM public.user_events
+      WHERE event_date >= $1::timestamp 
+        AND event_date <= $2::timestamp
+        AND user_agent IS NOT NULL 
+        AND user_agent != ''
+        AND ${ipColumn} IS NOT NULL 
+        AND ${ipColumn} != ''
+    `, [startDate, endDate]);
+    checks.withUAIP = parseInt(withUAIP.rows[0].count);
+    
+    // Проверка 4: После исключений
+    if (excludeEvents && excludeEvents.length > 0) {
+      const afterExclusions = await pool.query(`
+        SELECT COUNT(DISTINCT external_user_id) as count
+        FROM public.user_events
+        WHERE event_date >= $1::timestamp 
+          AND event_date <= $2::timestamp
+          AND event_type = ANY($3::text[])
+          AND external_user_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM public.user_events ue2 
+            WHERE ue2.external_user_id = public.user_events.external_user_id 
+              AND ue2.event_type = ANY($4::text[])
+          )
+      `, [startDate, endDate, eventTypes, excludeEvents]);
+      checks.afterExclusions = parseInt(afterExclusions.rows[0].count);
+    }
+  } catch (error) {
+    console.error('Diagnostics error:', error);
+    checks.error = error.message;
+  }
+  
+  return checks;
+}
+
+// API: Экспорт CSV
+app.post('/api/export', async (req, res) => {
+  const { 
+    startDate, 
+    endDate, 
+    eventTypes, 
+    advertisers = [],  // Массив advertiser ID: ['1'] для 4ra, ['2'] для Crore, ['1','2'] для обоих
+    excludeEvents = [], 
+    minDeposit = 0, 
+    maxDeposit = 1000000 
+  } = req.body;
+  
+  console.log('Export request:', {
+    startDate,
+    endDate,
+    eventTypes,
+    advertisers,
+    excludeEvents,
+    minDeposit,
+    maxDeposit
+  });
+  
+  try {
+    // Валидация
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Укажите период (startDate и endDate)' });
+    }
+    
+    if (!eventTypes || !Array.isArray(eventTypes) || eventTypes.length === 0) {
+      return res.status(400).json({ error: 'Выберите хотя бы один тип события' });
+    }
+    
+    // Формируем SQL запрос
+    // ВАЖНО: Сначала находим пользователей, потом их UA+IP пары
+    let paramIndex = 1;
+    const params = [startDate, endDate, eventTypes];
+    paramIndex += 3;
+    
+    let query = `
+      WITH 
+      -- Шаг 1: Находим пользователей по критериям
+      filtered_users AS (
+        SELECT DISTINCT ue.external_user_id
+        FROM public.user_events ue
+        WHERE ue.event_date >= $1::timestamp
+          AND ue.event_date <= $2::timestamp
+          AND ue.event_type = ANY($3::text[])
+          AND ue.external_user_id IS NOT NULL
+    `;
+    
+    // Добавляем фильтр по advertiser
+    if (advertisers.length > 0) {
+      query += `\n          AND ue.advertiser = ANY($${paramIndex}::text[])`;
+      params.push(advertisers);
+      paramIndex++;
+    }
+    
+    // Добавляем исключения
+    if (excludeEvents.length > 0) {
+      query += `
+          -- Исключаем пользователей с определенными событиями
+          AND NOT EXISTS (
+            SELECT 1 
+            FROM public.user_events ue2 
+            WHERE ue2.external_user_id = ue.external_user_id 
+              AND ue2.event_type = ANY($${paramIndex}::text[])
+          )`;
+      params.push(excludeEvents);
+      paramIndex++;
+    }
+    
+    // Добавляем фильтр по депозитам
+    if (minDeposit > 0 || maxDeposit < 1000000) {
+      query += `
+          -- Фильтр по сумме депозитов
+          AND EXISTS (
+            SELECT 1 
+            FROM public.user_events ue3 
+            WHERE ue3.external_user_id = ue.external_user_id 
+              AND ue3.event_type = 'deposit'
+              AND ue3.converted_amount >= $${paramIndex}
+              AND ue3.converted_amount <= $${paramIndex + 1}
+          )`;
+      params.push(minDeposit, maxDeposit);
+      paramIndex += 2;
+    }
+    
+    query += `
+      )
+      -- Шаг 2: Получаем все пары UA+IP для найденных пользователей
+      SELECT DISTINCT
+        ue.user_agent,
+        ue.${ipColumn} as ip_address
+      FROM public.user_events ue
+      INNER JOIN filtered_users fu ON ue.external_user_id = fu.external_user_id
+      WHERE ue.user_agent IS NOT NULL 
+        AND ue.user_agent != ''
+        AND ue.${ipColumn} IS NOT NULL 
+        AND ue.${ipColumn} != ''
+      ORDER BY ue.user_agent, ue.${ipColumn}
+    `;
+    
+    console.log(`Executing query with ${params.length} parameters`);
+    
+    // Выполняем запрос
+    const result = await pool.query(query, params);
+    
+    console.log(`Query returned ${result.rows.length} rows`);
+    
+    // Если результатов нет, выполняем диагностику
+    if (result.rows.length === 0) {
+      console.log('No results, running diagnostics...');
+      const diagnostic = await runDiagnostics({
+        startDate,
+        endDate,
+        eventTypes,
+        advertisers,
+        excludeEvents,
+        ipColumn
+      });
+      
+      console.log('Diagnostics result:', diagnostic);
+      
+      return res.status(400).json({
+        error: 'CSV данные пусты. Проверьте логи сервера в Railway Dashboard.',
+        diagnostic
+      });
+    }
+    
+    // Формируем CSV
+    const csvData = csv.stringify(result.rows, {
+      header: true,
+      columns: {
+        user_agent: 'User Agent',
+        ip_address: 'IP Address'
+      }
+    });
+    
+    // Отправляем CSV
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="ua_ip_export_${Date.now()}.csv"`);
+    res.send('\ufeff' + csvData); // BOM для корректного отображения в Excel
+    
+  } catch (error) {
+    console.error('Export error:', error);
+    console.error('Stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Ошибка при экспорте',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// Health check
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', database: 'connected' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', database: 'disconnected', error: error.message });
+  }
+});
+
+// Инициализация при старте
+async function init() {
+  try {
+    await checkDatabaseSchema();
+    console.log('Server initialized successfully');
+  } catch (error) {
+    console.error('Initialization failed:', error);
+    process.exit(1);
+  }
+}
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+  await init();
+});
+
